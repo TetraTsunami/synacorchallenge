@@ -118,9 +118,6 @@ class Execution(private val mem: IntArray) {
     private val scanner = Scanner(System.`in`)
     private val inputCache = LinkedList<Char>()
     private val replayCache = LinkedList<String>()
-    private var recording = false;
-    private var replaying = false;
-
     fun run() {
         while (ip < mem.size) {
             val opcode = mem[ip]
@@ -260,29 +257,20 @@ class Execution(private val mem: IntArray) {
         while (inputCache.isEmpty()) {
             val input = scanner.nextLine()
             when (input) {
-                "!rec" -> {
-                    println("Recording...")
-                    replayCache.clear()
-                    recording = true
-                }
                 "!s" -> {
                     println("Saving replay...")
-                    recording = false
                     File("replay.txt").writeText(replayCache.joinToString("\n"))
                 }
                 "!r" -> {
                     println("Replaying...")
-                    replaying = true
+                    replayCache.addAll(File("replay.txt").readLines())
                     inputCache.addAll(File("replay.txt").readText().toCharArray().toList())
-                    inputCache.add('\n')
                 }
                 "!dump" -> {
                     dump()
                 }
                 else -> {
-                    if (recording) {
-                        replayCache.add(input)
-                    }
+                    replayCache.add(input)
                     inputCache.addAll(input.toCharArray().toList())
                     inputCache.add('\n')
                 }
