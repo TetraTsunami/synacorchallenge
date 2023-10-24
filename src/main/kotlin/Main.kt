@@ -1,6 +1,7 @@
 import java.io.File
-import java.util.*
 import java.io.RandomAccessFile
+import java.util.*
+
 val opArgs = mapOf(
     0 to 0,
     1 to 2,
@@ -49,34 +50,23 @@ val opNames = mapOf(
     20 to "in",
     21 to "noop"
 )
-
-// Executing self-test...
-//
-// 320: jmp 347
-// 352: jmp 358
-// 358: jmp 228
-// ebsite: fLDEMMld
-// Process finished with exit code 130
-
+val patches = mapOf(
+    5489 to 21, // skip check that puts us in the infinite loop
+    5490 to 21,
+    5495 to 21, // skip jf check
+    5496 to 6 // jump wherever it was going
+)
 fun main(args: Array<String>) {
-    // executeProgram(challengeFromString("9,32768,32769,97,19,32768"))
-    // Viewer(loadChallenge()).run(500, 0)
     Execution(loadChallenge()).run()
 }
 
 fun challengeFromString(input: String): IntArray {
-    val arr1 = input.split(",").map { it.toInt() } .toIntArray()
+    val arr1 = input.split(",").map { it.toInt() }.toIntArray()
     val arr2 = IntArray(32768 - arr1.size)
     return arr1 + arr2
 }
 
 fun loadChallenge(): IntArray {
-    // val challenge = File("challenge.bin").readBytes()
-    // val memory = IntArray(32768)
-    // for ((i, j) in (challenge.indices step 2).withIndex()) {
-    //     memory[i] = challenge[j].toInt() + challenge[j + 1].toInt() * 256
-    // }
-    // return memory
     val challenge = RandomAccessFile("challenge.bin", "r")
     val memory = IntArray(32768)
     var i = 0
@@ -96,6 +86,7 @@ class Argument(private val value: Int, private val registers: Array<Register>) {
             else -> throw IllegalArgumentException("Unknown argument $value")
         }
     }
+
     fun set(input: Argument) {
         if (this.value in 32768..32775) {
             registers[this.value - 32768].value = input.get() % 32768
@@ -103,6 +94,7 @@ class Argument(private val value: Int, private val registers: Array<Register>) {
             throw IllegalArgumentException("Unknown argument $input")
         }
     }
+
     fun set(input: Int) {
         if (this.value in 32768..32775) {
             registers[this.value - 32768].value = input % 32768
@@ -111,6 +103,7 @@ class Argument(private val value: Int, private val registers: Array<Register>) {
         }
     }
 }
+
 class Execution(private val mem: IntArray) {
     private val registers = Array<Register>(8) { Register(0) }
     private val stack = Stack<Int>()
@@ -118,12 +111,28 @@ class Execution(private val mem: IntArray) {
     private val scanner = Scanner(System.`in`)
     private val inputCache = LinkedList<Char>()
     private val replayCache = LinkedList<String>()
+    private val outputCache = LinkedList<Char>()
+    private var step = false
+    private var stepWait = -1
+    private val disassembler = Disassembler(mem)
     fun run() {
+        patch()
         while (ip < mem.size) {
             val opcode = mem[ip]
             val a = Argument(mem[ip + 1], registers)
             val b = Argument(mem[ip + 2], registers)
             val c = Argument(mem[ip + 3], registers)
+            if (step && opcode !in 19..20) {
+                print(disassembler.formatInstruction(ip) + " ")
+                handleInput()
+            } else if (stepWait != -1) {
+                println(disassembler.formatInstruction(ip) + " ")
+                if (stepWait-- <= 0) {
+                    step = true
+                    stepWait = -1
+                }
+            }
+            if (mem[ip] != opcode) continue
             val delta = when (opcode) {
                 // halt: stop execution and terminate the program
                 0 -> return
@@ -161,7 +170,7 @@ class Execution(private val mem: IntArray) {
                 // jt: if <a> is nonzero, jump to <b>
                 7 -> {
                     // println("$ip: jt ${a.get()} ${b.get()}")
-                    if (a.get() != 0 ) ip = b.get()
+                    if (a.get() != 0) ip = b.get()
                     if (a.get() != 0) 0 else 3
                 }
                 // jf: if <a> is zero, jump to <b>
@@ -226,11 +235,16 @@ class Execution(private val mem: IntArray) {
                 // out: write the character represented by ascii code <a> to the terminal
                 19 -> {
                     print(a.get().toChar())
+                    if (step || stepWait != -1) {
+                        outputCache.add(a.get().toChar())
+                    }
                     2
                 }
                 // in: read a character from the terminal and write its ascii code to <a>;
                 20 -> {
                     handleInput(a)
+                    // we may have jumped :)
+                    if (mem[ip] != opcode) continue
                     2
                 }
                 // noop: no operation
@@ -253,68 +267,81 @@ class Execution(private val mem: IntArray) {
         }
     }
 
-    private fun handleInput(a: Argument) {
-        while (inputCache.isEmpty()) {
-            val input = scanner.nextLine()
-            when (input) {
-                "!s" -> {
-                    println("Saving replay...")
-                    File("replay.txt").writeText(replayCache.joinToString("\n"))
-                }
-                "!r" -> {
-                    println("Replaying...")
-                    replayCache.addAll(File("replay.txt").readLines())
-                    inputCache.addAll(File("replay.txt").readText().toCharArray().toList())
-                }
-                "!dump" -> {
-                    dump()
-                }
-                else -> {
-                    replayCache.add(input)
-                    inputCache.addAll(input.toCharArray().toList())
-                    inputCache.add('\n')
+    private fun patch() {
+        for ((key, value) in patches) {
+            mem[key] = value
+        }
+    }
+
+    private fun handleInput() {
+        when (val input = scanner.nextLine()) {
+            "!s" -> {
+                println("Saving replay...")
+                File("replay.txt").writeText(replayCache.joinToString("\n"))
+            }
+
+            "!r" -> {
+                println("Replaying...")
+                replayCache.addAll(File("replay.txt").readLines())
+                inputCache.addAll(File("replay.txt").readText().toCharArray().toList())
+            }
+
+            "!set" -> {
+                print("Register: ")
+                val reg = scanner.nextInt()
+                print("Value: ")
+                val value = scanner.nextInt()
+                registers[reg].value = value
+            }
+
+            "!jmp" -> {
+                print("IP: ")
+                ip = scanner.nextInt()
+            }
+
+            "!dump" -> {
+                dump()
+            }
+
+            "!step" -> {
+                step = !step
+                println("Toggled stepping to $step")
+                if (outputCache.isNotEmpty()) {
+                    println(outputCache.joinToString(""))
+                    outputCache.clear()
                 }
             }
+
+            "!stepwait" -> {
+                print("How many instructions until step: ")
+                stepWait = scanner.nextInt()
+            }
+
+            "!next" -> {
+                print("How long: ")
+                val howLong = scanner.nextInt()
+                disassembler.run(howLong, ip)
+            }
+
+            "!look" -> {
+                print("What address: ")
+                val addr = scanner.nextInt()
+                print("How long: ")
+                val howLong = scanner.nextInt()
+                disassembler.run(howLong, addr)
+            }
+
+            else -> {
+                replayCache.add(input)
+                inputCache.addAll(input.toCharArray().toList())
+                if (input.isNotEmpty()) inputCache.add('\n')
+            }
         }
+    }
+
+    private fun handleInput(a: Argument) {
+        while (inputCache.isEmpty()) this.handleInput()
         a.set(inputCache.removeFirst().code)
     }
 }
-class Viewer(val mem: IntArray) {
-    fun run(howLong: Int, startingPointer: Int) {
-        var ip = startingPointer
-        val record = LinkedList<String>()
-        val recentText = LinkedList<Char>()
-        println("Running...")
-        while (ip < mem.size && (howLong == 0 || ip < howLong)) {
-            val opCode = mem[ip]
-            if (opCode == 19) {
-                record.add("${toBits(ip)}: ${opNames[opCode]} (${mem[ip + 1].toChar()})")
-                recentText.add(mem[ip + 1].toChar())
-                ip += opArgs[opCode]!! + 1
-                continue
-            }
-            if (recentText.isNotEmpty()) {
-                record.add("Text: ${recentText.joinToString("")}")
-                recentText.clear()
-                continue
-            }
-            when (opArgs[opCode]!!) {
-                0 -> record.add("${toBits(ip)}: ${opNames[opCode]}")
-                1 -> record.add("${toBits(ip)}: ${opNames[opCode]} ${toBits(mem[ip + 1])}")
-                2 -> record.add("${toBits(ip)}: ${opNames[opCode]} ${toBits(mem[ip + 1])} ${toBits(mem[ip + 2])}")
-                3 -> record.add("${toBits(ip)}: ${opNames[opCode]} ${toBits(mem[ip + 1])} ${toBits(mem[ip + 2])} ${toBits(mem[ip + 3])}")
-            }
-            ip += opArgs[opCode]!! + 1
-        }
-        println(record.joinToString("\n"))
-    }
 
-    private fun toBits(input: Int): String {
-        val bits: ByteArray = byteArrayOf((input / 256).toByte(), (input % 256).toByte())
-        return "0x${bits.joinToString("") { "%02x".format(it) }}"
-    }
-
-    fun run() {
-        run(0, 0)
-    }
-}
