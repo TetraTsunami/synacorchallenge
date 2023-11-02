@@ -1,6 +1,7 @@
 import java.io.File
 import java.io.RandomAccessFile
 import java.util.*
+import java.util.regex.Pattern
 
 val opArgs = mapOf(
     0 to 0,
@@ -50,12 +51,6 @@ val opNames = mapOf(
     20 to "in",
     21 to "noop"
 )
-val patches = mapOf(
-    5489 to 21, // skip check that puts us in the infinite loop
-    5490 to 21,
-    5495 to 21, // skip jf check
-    5496 to 6 // jump wherever it was going
-)
 fun main(args: Array<String>) {
     Execution(loadChallenge()).run()
 }
@@ -66,6 +61,18 @@ fun challengeFromString(input: String): IntArray {
     return arr1 + arr2
 }
 
+fun loadPatches(): MutableMap<Int, Int> {
+    val patchSource = File("patches.txt").readLines()
+    val patches = mutableMapOf<Int, Int>()
+    val comments = Pattern.compile("#.*")
+    for (patch in patchSource) {
+        val noComments = comments.matcher(patch).replaceAll("").trim()
+        if (noComments.isEmpty()) continue
+        val (addr, value) = noComments.split(":").map { it.trim().toInt() }
+        patches[addr] = value
+    }
+    return patches
+}
 fun loadChallenge(): IntArray {
     val challenge = RandomAccessFile("challenge.bin", "r")
     val memory = IntArray(32768)
@@ -78,11 +85,19 @@ fun loadChallenge(): IntArray {
 }
 
 class Register(var value: Int)
-class Argument(private val value: Int, private val registers: Array<Register>) {
+class Argument(val value: Int, private val registers: Array<Register>) {
     fun get(): Int {
         return when (value) {
             in 0..32767 -> value
             in 32768..32775 -> registers[value - 32768].value
+            else -> throw IllegalArgumentException("Unknown argument $value")
+        }
+    }
+
+    fun regNum(): Int {
+        return when (value) {
+            in 0..32767 -> -1
+            in 32768..32775 -> value - 32768
             else -> throw IllegalArgumentException("Unknown argument $value")
         }
     }
@@ -112,23 +127,25 @@ class Execution(private val mem: IntArray) {
     private val inputCache = LinkedList<Char>()
     private val replayCache = LinkedList<String>()
     private val outputCache = LinkedList<Char>()
-    private var step = false
+    private var stepping = false
+    private var printExec = false
     private var stepWait = -1
     private val disassembler = Disassembler(mem)
     fun run() {
-        patch()
         while (ip < mem.size) {
             val opcode = mem[ip]
             val a = Argument(mem[ip + 1], registers)
             val b = Argument(mem[ip + 2], registers)
             val c = Argument(mem[ip + 3], registers)
-            if (step && opcode !in 19..20) {
-                print(disassembler.formatInstruction(ip) + " ")
+            if (stepping) {
+                print(disassembler.formatInstruction(ip, registers) + " ")
                 handleInput()
-            } else if (stepWait != -1) {
-                println(disassembler.formatInstruction(ip) + " ")
-                if (stepWait-- <= 0) {
-                    step = true
+            }
+            if (printExec && !stepping) println(disassembler.formatInstruction(ip, registers))
+            if (stepWait != -1) {
+                if (--stepWait <= 0) {
+                    printExec = false
+                    stepping = true
                     stepWait = -1
                 }
             }
@@ -235,7 +252,7 @@ class Execution(private val mem: IntArray) {
                 // out: write the character represented by ascii code <a> to the terminal
                 19 -> {
                     print(a.get().toChar())
-                    if (step || stepWait != -1) {
+                    if (stepping || printExec) {
                         outputCache.add(a.get().toChar())
                     }
                     2
@@ -268,6 +285,7 @@ class Execution(private val mem: IntArray) {
     }
 
     private fun patch() {
+        val patches = loadPatches()
         for ((key, value) in patches) {
             mem[key] = value
         }
@@ -304,9 +322,11 @@ class Execution(private val mem: IntArray) {
             }
 
             "!step" -> {
-                step = !step
-                println("Toggled stepping to $step")
+                stepping = !stepping
+                printExec = false
+                println("Toggled stepping to $stepping")
                 if (outputCache.isNotEmpty()) {
+                    println("Output while stepping:")
                     println(outputCache.joinToString(""))
                     outputCache.clear()
                 }
@@ -315,6 +335,8 @@ class Execution(private val mem: IntArray) {
             "!stepwait" -> {
                 print("How many instructions until step: ")
                 stepWait = scanner.nextInt()
+                printExec = true
+                stepping = false
             }
 
             "!next" -> {
@@ -329,6 +351,11 @@ class Execution(private val mem: IntArray) {
                 print("How long: ")
                 val howLong = scanner.nextInt()
                 disassembler.run(howLong, addr)
+            }
+
+            "!patch" -> {
+                println("Patching...")
+                patch()
             }
 
             else -> {

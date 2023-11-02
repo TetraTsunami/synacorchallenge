@@ -2133,8 +2133,10 @@
 0x156a (5482): noop
 0x156b (5483): set 0x8000 (32768) 0x0004 (4)
 0x156e (5486): set 0x8001 (32769) 0x0001 (1)
+# This is the call to the verification function
 0x1571 (5489): call 0x178b (6027)
 0x1573 (5491): eq 0x8001 (32769) 0x8000 (32768) 0x0006 (6)
+# If it isn't equal, we jump to the failure path
 0x1577 (5495): jf 0x8001 (32769) 0x15cb (5579)
 0x157a (5498): push 0x8000 (32768)
 0x157c (5500): push 0x8001 (32769)

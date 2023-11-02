@@ -1,0 +1,5 @@
+5489: 21 # skip check that puts us in the infinite loop
+5490: 21
+5495: 21 # skip jf check
+5496: 21
+5497: 21
