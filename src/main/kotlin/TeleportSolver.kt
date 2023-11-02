@@ -3,28 +3,21 @@ fun main(args: Array<String>) {
     val desiredReturn = 6
     // given the code, we want iterative to return 6
     for (i in 0..32767) {
-        // if (iterative(4, 1, i) == desiredReturn) {
-        //     println(i)
-        // }
         println("$i: ${func1(4, 1, i)}")
-    }
-}
-
-fun iterative(reg1: Int, reg2: Int, reg3: Int): Int {
-    var a = reg1
-    var b = reg2
-    while (a != 0) {
-        if (b != 0) {
-            b = (b - 1) % 32768
-        } else {
-            a -= 1
-            b = reg3
+        if (func1(4, 1, i) == desiredReturn) {
+            println("Found $i")
+            break
         }
-        // println("$reg1 $reg2 $reg3")
     }
-    return b + 1 % 32768
+    // for (a in 0..5) {
+    //     for (b in 0..5) {
+    //         for (c in 0..5) {
+    //             println("$a, $b, $c: ${func1(a, b, c)}")
+    //         }
+    //         println()
+    //     }
+    // }
 }
-
 /*
 6027:
 if a != 0: go to 6035
@@ -51,30 +44,23 @@ return
 
 var stack = Stack<Int>()
 fun func1(a: Int, b: Int, c: Int): Int {
-    var bm = b
-    if (a != 0) {
-        bm = func2(a, bm, c)
+    var a = a
+    var b = b
+    when (a) {
+        1 -> return (b + 1 + c) % 32768
+        2 -> return (b + 1 + c * (b + 2)) % 32768
     }
-    return bm + 1
-}
-
-fun func2(a:Int, b: Int, c: Int): Int {
-    var am = a
-    var bm = b
-    if (bm != 0) func3(am, bm, c)
-    am--
-    bm = c
-    return func1(am, bm, c)
-}
-
-fun func3(a: Int, b: Int, c: Int): Int {
-    var am = a
-    var bm = b
-    stack.push(a)
-    bm--
-    am = func1(am, bm, c)
-    bm = am
-    am = stack.pop()
-    am--
-    return func1(am, bm, c)
+    if (a != 0) {
+        if (b != 0) {
+            val keep = a
+            a = func1(a, (b - 1) % 32768, c)
+            b = a
+            a = (keep - 1) % 32768
+            return func1(a, b, c)
+        }
+        a = (a - 1) % 32768
+        b = c
+        return func1(a, b, c)
+    }
+    return (b + 1) % 32768
 }
