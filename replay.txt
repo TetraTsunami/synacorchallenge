@@ -46,3 +46,45 @@ use concave coin
 use corroded coin
 north
 take teleporter
+!patch
+!set 7 25734
+use teleporter
+west
+north
+north
+north
+north
+north
+north
+north
+north
+north
+use orb
+take orb
+north
+north
+north
+south
+south
+south
+north
+south
+use orb
+take orb
+north
+west
+west
+east
+east
+north
+west
+south
+east
+east
+west
+north
+north
+east
+vault
+take mirror
+use mirror

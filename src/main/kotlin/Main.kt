@@ -1,5 +1,6 @@
 import java.io.File
 import java.io.RandomAccessFile
+import java.lang.IndexOutOfBoundsException
 import java.util.*
 import java.util.regex.Pattern
 
@@ -126,7 +127,6 @@ class Execution(private val mem: IntArray) {
     private val scanner = Scanner(System.`in`)
     private val inputCache = LinkedList<Char>()
     private val replayCache = LinkedList<String>()
-    private val outputCache = LinkedList<Char>()
     private var stepping = false
     private var printExec = false
     private var stepWait = -1
@@ -139,7 +139,7 @@ class Execution(private val mem: IntArray) {
             val c = Argument(mem[ip + 3], registers)
             if (stepping) {
                 print(disassembler.formatInstruction(ip, registers) + " ")
-                handleInput()
+                takeInput()
             }
             if (printExec && !stepping) println(disassembler.formatInstruction(ip, registers))
             if (stepWait != -1) {
@@ -252,14 +252,11 @@ class Execution(private val mem: IntArray) {
                 // out: write the character represented by ascii code <a> to the terminal
                 19 -> {
                     print(a.get().toChar())
-                    if (stepping || printExec) {
-                        outputCache.add(a.get().toChar())
-                    }
                     2
                 }
                 // in: read a character from the terminal and write its ascii code to <a>;
                 20 -> {
-                    handleInput(a)
+                    takeInput(a)
                     // we may have jumped :)
                     if (mem[ip] != opcode) continue
                     2
@@ -291,84 +288,103 @@ class Execution(private val mem: IntArray) {
         }
     }
 
-    private fun handleInput() {
-        when (val input = scanner.nextLine()) {
-            "!s" -> {
-                println("Saving replay...")
-                File("replay.txt").writeText(replayCache.joinToString("\n"))
-            }
-
-            "!r" -> {
-                println("Replaying...")
-                replayCache.addAll(File("replay.txt").readLines())
-                inputCache.addAll(File("replay.txt").readText().toCharArray().toList())
-            }
-
-            "!set" -> {
-                print("Register: ")
-                val reg = scanner.nextInt()
-                print("Value: ")
-                val value = scanner.nextInt()
-                registers[reg].value = value
-            }
-
-            "!jmp" -> {
-                print("IP: ")
-                ip = scanner.nextInt()
-            }
-
-            "!dump" -> {
-                dump()
-            }
-
-            "!step" -> {
-                stepping = !stepping
-                printExec = false
-                println("Toggled stepping to $stepping")
-                if (outputCache.isNotEmpty()) {
-                    println("Output while stepping:")
-                    println(outputCache.joinToString(""))
-                    outputCache.clear()
-                }
-            }
-
-            "!stepwait" -> {
-                print("How many instructions until step: ")
-                stepWait = scanner.nextInt()
-                printExec = true
-                stepping = false
-            }
-
-            "!next" -> {
-                print("How long: ")
-                val howLong = scanner.nextInt()
-                disassembler.run(howLong, ip)
-            }
-
-            "!look" -> {
-                print("What address: ")
-                val addr = scanner.nextInt()
-                print("How long: ")
-                val howLong = scanner.nextInt()
-                disassembler.run(howLong, addr)
-            }
-
-            "!patch" -> {
-                println("Patching...")
-                patch()
-            }
-
-            else -> {
-                replayCache.add(input)
-                inputCache.addAll(input.toCharArray().toList())
-                if (input.isNotEmpty()) inputCache.add('\n')
-            }
-        }
+    private fun takeInput() {
+        val input = scanner.nextLine()
+        if (input != "!r" && input != "!s") replayCache.add(input)
+        inputCache.addAll(input.toCharArray().toList())
+        if (input.isNotEmpty()) inputCache.add('\n')
     }
 
-    private fun handleInput(a: Argument) {
-        while (inputCache.isEmpty()) this.handleInput()
-        a.set(inputCache.removeFirst().code)
+    private fun takeInput(a: Argument) {
+        // loop because we eventually have to return an input, but due to commands we may not want to return one immediately
+        while (true) {
+            // read a line of input from the keyboard
+            while (inputCache.isEmpty()) this.takeInput()
+            // read the first character
+            val input = inputCache.removeFirst()
+            // if that character is /, treat it as a command. read rest of line and execute
+            // may cause problems with natural /, but there shouldn't be any
+            if (input == '!') {
+                val line = StringBuilder()
+                for (i in 0..inputCache.size) {
+                    val c = inputCache.removeFirst()
+                    if (c == '\n') break
+                    line.append(c)
+                }
+                val command = line.split(' ')
+                try {
+                    when (command[0]) {
+                        "s" -> {
+                            println("Saving replay...")
+                            File("replay.txt").writeText(replayCache.joinToString("\n"))
+                        }
+
+                        "r" -> {
+                            println("Replaying...")
+                            replayCache.addAll(File("replay.txt").readLines())
+                            inputCache.addAll(File("replay.txt").readText().toCharArray().toList())
+                        }
+
+                        "set" -> {
+                            val reg = command[1].toInt()
+                            val value = command[2].toInt()
+                            registers[reg].value = value
+                            println("Set register $reg to $value")
+                        }
+
+                        "jmp" -> {
+                            ip = command[1].toInt()
+                            println("Jumped to $ip")
+                        }
+
+                        "dump" -> {
+                            dump()
+                        }
+
+                        "step" -> {
+                            stepping = !stepping
+                            printExec = false
+                            println("Toggled stepping to $stepping")
+                        }
+
+                        "stepwait" -> {
+                            stepWait = command[1].toInt()
+                            printExec = true
+                            stepping = false
+                        }
+
+                        "next" -> {
+                            val howLong = command[1].toInt()
+                            disassembler.run(howLong, ip)
+                        }
+
+                        "look" -> {
+                            val addr = command[1].toInt()
+                            val howLong = command[2].toInt()
+                            println("Printing $howLong lines starting at $addr")
+                            disassembler.run(howLong, addr)
+                        }
+
+                        "patch" -> {
+                            patch()
+                            println("Patched memory.")
+                        }
+
+                        else -> {
+                            println("Unrecognized command")
+                        }
+                    }
+                } catch (e: IndexOutOfBoundsException) {
+                    println("Missing argument")
+                } catch (e: NumberFormatException) {
+                    println("Invalid argument")
+                }
+            }
+            else {
+                a.set(input.code)
+                break
+            }
+        }
     }
 }
 
